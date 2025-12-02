@@ -8,8 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabase } from '@/lib/supabase/server';
-import { saveMessage, getRecentMessages, getSession } from '@/lib/supabase/queries';
+import { getSessionServer, getRecentMessagesServer, saveMessageServer } from '@/lib/supabase/queries-server';
 import { createChatCompletion, isOpenAIConfigured } from '@/lib/openai/client';
 import { SYSTEM_PROMPT, OPENING_MESSAGE } from '@/config/prompts';
 import { log } from '@/lib/utils';
@@ -66,7 +65,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the session for context
-    const session = await getSession(sessionId);
+    const session = await getSessionServer(sessionId);
     if (!session) {
       return NextResponse.json(
         { error: 'Session not found' },
@@ -75,7 +74,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get recent messages for context
-    const recentMessages = await getRecentMessages(sessionId, 10);
+    const recentMessages = await getRecentMessagesServer(sessionId, 10);
 
     // Build conversation history for OpenAI
     const conversationHistory = buildConversationHistory(
@@ -94,7 +93,7 @@ export async function POST(request: NextRequest) {
       "I'm having trouble responding right now. Could you try again?";
 
     // Save assistant message to database
-    await saveMessage(sessionId, {
+    await saveMessageServer(sessionId, {
       role: 'assistant',
       content: assistantMessage,
       message_type: 'text',

@@ -3,19 +3,14 @@
  *
  * Manages the current onboarding session state.
  * Handles session lifecycle (start, pause, resume, complete).
+ *
+ * NOTE: In demo mode, the store fetches data from API routes
+ * which bypass RLS using the admin client.
  */
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { OnboardingSession, Business, SessionStatus } from '@/lib/types';
-import {
-  createBusiness,
-  createSession,
-  getActiveSession,
-  getBusiness,
-  getSession,
-  updateSessionStatus,
-} from '@/lib/supabase/queries';
 import { log } from '@/lib/utils';
 
 // ============================================
@@ -58,51 +53,40 @@ export const useSessionStore = create<SessionState>()(
 
       /**
        * Initialize a new session with a new business.
-       * Used when starting fresh.
+       * NOTE: In demo mode, use the home page flow which calls the API.
+       * This function is kept for future authenticated flow.
        */
-      initializeSession: async (userId: string, businessName?: string) => {
-        log.info('🚀 Initializing new session', { userId });
-        set({ isLoading: true, error: null });
-
-        try {
-          // Create a new business
-          const business = await createBusiness(userId, businessName);
-          log.info('🏢 Business created', { businessId: business.id });
-
-          // Create a new session for this business
-          const session = await createSession(business.id);
-          log.info('💬 Session created', { sessionId: session.id });
-
-          set({
-            business,
-            session,
-            currentBucket: 'basics',
-            isLoading: false,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Failed to initialize session';
-          log.error('❌ Session initialization failed', { error });
-          set({ error: message, isLoading: false });
-          throw error;
-        }
+      initializeSession: async (_userId: string, _businessName?: string) => {
+        // In demo mode, sessions are created via the API from the home page.
+        // This function would be used when we add proper authentication.
+        log.warn('initializeSession should use API route in demo mode');
+        throw new Error('Use home page to create sessions in demo mode');
       },
 
       /**
        * Load an existing session by ID.
+       * Fetches from API to bypass RLS in demo mode.
        */
       loadSession: async (sessionId: string) => {
         log.info('📂 Loading session', { sessionId });
         set({ isLoading: true, error: null });
 
         try {
-          // Fetch the session
-          const session = await getSession(sessionId);
+          // Fetch session from API (bypasses RLS)
+          const response = await fetch(`/api/session?id=${sessionId}`);
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || 'Session not found');
+          }
+
+          const data = await response.json();
+          const { session, business } = data;
+
           if (!session) {
             throw new Error('Session not found');
           }
 
-          // Fetch the business
-          const business = await getBusiness(session.business_id);
           if (!business) {
             throw new Error('Business not found');
           }
@@ -129,63 +113,28 @@ export const useSessionStore = create<SessionState>()(
 
       /**
        * Resume an existing session or create a new one for a business.
+       * NOTE: In demo mode, use loadSession instead.
        */
-      resumeOrCreateSession: async (businessId: string) => {
-        log.info('🔄 Resuming or creating session', { businessId });
-        set({ isLoading: true, error: null });
-
-        try {
-          // Fetch the business
-          const business = await getBusiness(businessId);
-          if (!business) {
-            throw new Error('Business not found');
-          }
-
-          // Try to find an active session
-          let session = await getActiveSession(businessId);
-
-          if (session) {
-            log.info('♻️ Resuming existing session', { sessionId: session.id });
-          } else {
-            // Create a new session
-            session = await createSession(businessId);
-            log.info('✨ Created new session', { sessionId: session.id });
-          }
-
-          set({
-            session,
-            business,
-            currentBucket: session.current_focus_bucket || 'basics',
-            isLoading: false,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Failed to load session';
-          log.error('❌ Session resume failed', { error });
-          set({ error: message, isLoading: false });
-          throw error;
-        }
+      resumeOrCreateSession: async (_businessId: string) => {
+        // In demo mode, sessions are loaded via loadSession.
+        // This function would be used when we add proper authentication.
+        log.warn('resumeOrCreateSession should use loadSession in demo mode');
+        throw new Error('Use loadSession in demo mode');
       },
 
       /**
        * Update the current focus bucket.
+       * Updates local state only - persistence would go through API.
        */
       updateBucket: (bucketId: string) => {
-        const { session } = get();
         log.info('📦 Bucket updated', { from: get().currentBucket, to: bucketId });
         set({ currentBucket: bucketId });
-
-        // Also update the session in the database (fire and forget)
-        if (session) {
-          updateSessionStatus(session.id, session.status, {
-            current_focus_bucket: bucketId,
-          }).catch((error) => {
-            log.warn('Failed to save bucket update', { error });
-          });
-        }
+        // TODO: Add API call to persist bucket update when needed
       },
 
       /**
        * Pause the current session.
+       * Updates local state only - persistence would go through API.
        */
       pauseSession: async () => {
         const { session } = get();
@@ -195,20 +144,15 @@ export const useSessionStore = create<SessionState>()(
         }
 
         log.info('⏸️ Pausing session', { sessionId: session.id });
-
-        try {
-          await updateSessionStatus(session.id, 'paused');
-          set({
-            session: { ...session, status: 'paused' },
-          });
-        } catch (error) {
-          log.error('❌ Failed to pause session', { error });
-          throw error;
-        }
+        set({
+          session: { ...session, status: 'paused' },
+        });
+        // TODO: Add API call to persist status when needed
       },
 
       /**
        * Mark the session as complete.
+       * Updates local state only - persistence would go through API.
        */
       completeSession: async () => {
         const { session } = get();
@@ -218,18 +162,10 @@ export const useSessionStore = create<SessionState>()(
         }
 
         log.info('✅ Completing session', { sessionId: session.id });
-
-        try {
-          await updateSessionStatus(session.id, 'completed', {
-            completed_at: new Date().toISOString(),
-          });
-          set({
-            session: { ...session, status: 'completed' },
-          });
-        } catch (error) {
-          log.error('❌ Failed to complete session', { error });
-          throw error;
-        }
+        set({
+          session: { ...session, status: 'completed' },
+        });
+        // TODO: Add API call to persist status when needed
       },
 
       /**

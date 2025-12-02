@@ -1,12 +1,14 @@
 /**
- * 🔍 Supabase Query Functions
+ * 🔍 Supabase Query Functions (Client-side)
  *
  * Reusable database queries organized by entity.
- * These abstract away the Supabase client usage.
+ * These use the browser client and respect RLS policies.
+ *
+ * NOTE: For demo mode without auth, use API routes instead of these queries.
+ * The API routes use the admin client to bypass RLS.
  */
 
 import { createClient } from './client';
-import { createServerSupabase, createAdminSupabase } from './server';
 import {
   Business,
   OnboardingSession,
@@ -403,29 +405,6 @@ export async function queueAnalysisJob(
 
   log.info('🔬 Analysis job queued', { jobId: data.id, analyzerType });
   return data;
-}
-
-/**
- * Get pending analysis jobs.
- */
-export async function getPendingAnalysisJobs(
-  limit: number = 10
-): Promise<AnalysisJob[]> {
-  const supabase = await createServerSupabase();
-
-  const { data, error } = await supabase
-    .from('analysis_jobs')
-    .select('*')
-    .eq('status', 'pending')
-    .order('created_at', { ascending: true })
-    .limit(limit);
-
-  if (error) {
-    log.error('Failed to fetch pending jobs', error);
-    throw error;
-  }
-
-  return data || [];
 }
 
 // ============================================
